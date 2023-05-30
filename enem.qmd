@@ -1,0 +1,421 @@
+---
+title: "Exame Nacional do Ensino Médio (2019) em Belo Horizonte"
+subtitle: "use R!!!"
+author: "Fábio N. Demarqui"
+lang: pt
+date: "`r Sys.Date()`"
+output: html
+---
+
+```{r}
+#| label: options
+#| echo: false
+
+options(dplyr.summarise.inform = FALSE)
+```
+
+## Descrição dos dados
+
+O banco de dados `enem`, disponível no pacote **useR**, contém 14 variáveis associadas aos 87365 candidatos inscritos para realizar o Exame Nacional do Ensino Médio (ENEM) no ano de 2019, na cidade de Belo Horizonte, MG.
+
+As variáveis disponíveis no banco de dados `enem` são as seguintes:
+
+1.  idade: idade (em anos)
+2.  sexo: sexo (F - feminino, M - masculino)
+3.  est_civil: estado civil (NI (não informado), solteiro, divorciado, casado ou viúvo)
+4.  raca: branco, pardo, negro, amarelo, indígina ou ND (não determinado)
+5.  escola: escola de origem (não respondeu, pública, privada ou exterior)
+6.  lingua_estr: lingua da prova de lingua estrangeira (0 - inglês, 1 espanhol)
+7.  nota_CN: nota obtida na prova de ciências naturais
+8.  nota_CH: nota obtida na prova de ciências humanas
+9.  nota_LC: nota obtida na prova de linguas e códigos
+10. nota_MT: nota obtida na prova de matemática
+11. nota_RD: nota obtida na prova de redação
+12. ESC_pai: pai possui ensino superior completo? (não sabe, sim, não)
+13. ESC_mae: mae possui ensino superior completo? (não sabe, sim, não)
+14. renda_fam: renda familiar mensal: A - nenhuma renda; B - até R$ 998,00; C - R$ 998,01 até R$ 1.497,00; D - R$ 1.497,01 até R$ 1.996,00; E - R$ 1.996,01 até R$ 2.495,00; F - R$ 2.495,01 até R$ 2.994,00; G - R$ 2.994,01 até R$ 3.992,00; H - R$ 3.992,01 até R$ 4.990,00; I - R$ 4.990,01 até R$ 5.988,00; J - R$ 5.988,01 até R$ 6.986,00; K - R$ 6.986,01 até R$ 7.984,00; L - R$ 7.984,01 até R$ 8.982,00; M - R$ 8.982,01 até R$ 9.980,00; N - R$ 9.980,01 até R$ 11.976,00; O - R$ 11.976,01 até R$ 14.970,00; P - R$ 14.970,01 até R$ 19.960,00; Q - mais de R$ 19.960,00.
+
+:::callout-note
+Em 2019 o valor do salário mínimo era de R$ 998,00.
+:::
+
+
+```{r}
+#| label: setup
+#| message: false
+
+library(tidyverse)
+library(useR)
+
+# carregando os dados
+data(enem)
+# visualizando:
+glimpse(enem)
+```
+
+## Análise exploratória
+
+<!-- Agora que os dados estão preparados para a análise, é hora de termos um pouco de diversão! -->
+
+Primeiramente, vamos converter todas as variáveis categóricas que possuem classe `character` para a classe `factor`:
+
+```{r}
+enem <- enem %>% 
+  mutate(across(where(is.character), as.factor)) 
+glimpse(enem)
+```
+
+A variável `renda_fam` possui muitos níveis. Vamos criar a variável categórica `salario`, que corresponderá à renda familiar mensal em termos do número de salários mínimos utilizando a função `forcats::fct_collapse()`:
+
+```{r}
+enem <- enem %>%
+  mutate(
+    salarios = fct_collapse(renda_fam,
+                            "0" = "A",
+                            "1" = "B",
+                            "2" = c("C", "D"),
+                            "3" = c("E", "F"),
+                            "4" = c("G", "H"),
+                            "5" = c("I", "J"),
+                            "6" = LETTERS[11:17]
+    )
+  )
+```
+
+:::callout-tip
+Para aprender mais sobre como manipular objetos da classe `factor` no `R`, sugerimos a leitura do [Capítulo 17](https://r4ds.hadley.nz/factors.html) do livro [R for Data Science](https://r4ds.hadley.nz/).
+:::
+
+Calculando a nota média de cada prova, de acordo com os níveis da variável salarios:
+
+```{r}
+enem %>%
+  group_by(salarios) %>%
+  summarise(across(starts_with("nota"), mean))
+```
+
+Isso ocorre devido ao fato de termos observações faltantes no nosso conjunto de dados (vários alunos não fizeram uma ou mais provas). Felizmente, esse problema pode ser facilmente solucionado da seguinte forma:
+
+```{r}
+enem %>%
+  group_by(salarios) %>%
+  summarise(across(starts_with("nota"), ~ mean(.x, na.rm = TRUE)))
+```
+
+Para calcular a média geral (média das médias neste caso) dos candidatos segundo a renda familiar (em salários mínimos), é necessário utilizarmos as seguintes funções:
+
+  - `dplyr::starts_with()`: para selecionar as colunas cujos nomes começam com a string `nota`.
+
+  - `dplyr::rowwise()`: para informar ao `R` que as operações devem ser realizadas por linha.
+  
+  - `dplyr::c_across()`: para selecionar para quais colunas a operação será realiza por linha.
+    
+  
+:::callout-warning
+A função `dplyr::c_across()` deve ser utilizada no lugar da função `dplyr::across()` sempre que a função `dplyr::rowwise()` tiver sido utilizada previamente.
+:::
+
+
+```{r}
+#| cache: true
+salarios <- enem %>%
+  group_by(salarios) %>%
+  summarise(across(starts_with("nota"), ~ mean(.x, na.rm = TRUE))) %>%
+  rowwise() %>%
+  mutate(
+    media = mean(c_across(starts_with("nota")))
+  )
+salarios
+class(salarios)
+```
+
+:::callout-warning
+Cuidado com a classe do objeto salarios!!!
+:::
+
+:::callout-note
+Operações nas linhas de um conjunto de dados são, geralmente, mais custosas computacionalmente do que operações nas colunas. Isso ocorre porque, em geral, o número de linhas (observações) de um conjunto de dados é muito maior que o número de colunas (variáveis).
+:::
+
+No nosso próximo exemplo, iremos calcular a média das notas das provas de uma amostra de $n=1000$ candidatos que realizaram todas as provas. Utilizaremos as seguintes funções:
+
+  - `dplyr::filter()`: para filtramos o banco de dados, selecionando apenas os candidatos que realizaram todas as provas.
+  
+  - `dplyr::slice()`: para selecionar os candidatos que irão compor a amostra, a partir de um vetor de índices.
+  
+  - `dplyr::starts_with()`: para selecionar as colunas cujos nomes começam com a string `nota`.
+
+
+```{r}
+#| cache: true
+
+# fixando a semente:
+set.seed(1234567890)
+
+notas <- enem %>%
+  filter(sem_nota==FALSE)
+nrow(enem)
+nrow(notas)
+class(notas)
+
+# selecionando índices:
+amostra <- sample(1:nrow(notas), size = 1000, replace = FALSE)
+
+resultado <- notas %>% 
+  slice(amostra) %>%
+  rowwise() %>%
+  mutate(
+    min = min(c_across(starts_with("nota"))),
+    media = mean(c_across(starts_with("nota"))),
+    max = max(c_across(starts_with("nota"))),
+    amplitude = max-min,
+    cv = cv(c_across(starts_with("nota")))
+  )
+glimpse(resultado)  
+
+```
+
+## Visualização de dados
+
+Vamos voltar a nossa atenação agora para a descrição do banco de dados através de alguns gráficos.
+
+
+### O boxplot
+
+```{r}
+ggplot(resultado, aes(x=salarios, y = media)) +
+  geom_boxplot()
+
+ggplot(resultado, aes(x=escola, y = media)) +
+  geom_boxplot()
+
+ggplot(resultado, aes(x=salarios, y = media)) +
+  geom_boxplot() +
+  facet_grid(~escola)
+
+ggplot(resultado, aes(x=escola, y = media)) +
+  geom_boxplot() +
+  facet_grid(~salarios)
+
+```
+
+
+Alguma surpresa???
+
+
+Suponha agora que desejamos plotar os boxplots das notas de cada prova em um mesmo gráfico. Uma dificuldade que surge para a execução dessa tarefa é que as notas de cada prova estão armazenadas em uma coluna diferente no nosso conjunto de dados.
+
+Para fazermos o gráfico desejado, precisamos primeiro alterar o formato dos dados de **largo** para **longo**, tal que:
+
+  - as notas de todas as provas são guardadas em uma coluna, digamos nota;
+  - uma segunda coluna, digamos prova, receba os respectivos tipos de provas.
+  
+  A mudança no formato dos dados pode ser facilmente realizada com o auxílio da função `tidyr::pivot_longer()`, conforme demostrado abaixo:
+
+```{r}
+notas_long <- notas %>%
+  pivot_longer(
+    cols = starts_with("nota"),
+    values_to = "nota",
+    names_to = "prova"
+  ) %>%
+  mutate(
+    prova = recode(prova,
+      "nota_CH" = "CH",
+      "nota_CN" = "CN",
+      "nota_LC" = "LC",
+      "nota_MT" = "MT",
+      "nota_RD" = "RD",
+    )
+  )
+
+# visualizando:
+glimpse(notas_long)
+
+# comparando:
+dim(notas)
+dim(notas_long)
+
+# plotando o gráfico:
+ggplot(notas_long, aes(x = prova, y=nota)) +
+  geom_boxplot() 
+
+```
+
+### Gráfico de barras
+
+
+
+```{r}
+# com uma variável categórica
+
+tb1a <- fct_count(enem$sexo, prop = TRUE) %>%
+  rename(
+    sexo = f,
+  )
+
+# alternativamente:
+tb1b <- enem %>%
+  count(sexo) %>%
+  mutate(
+    p = n/sum(n)
+  )
+
+tb1a
+tb1b
+
+# reorganizando para facilitar o trabalho
+tb1 <- tb1a
+rm(tb1a, tb1b)
+
+# com 2 variáveis categóricas:
+tb2 <- enem %>%
+  group_by(escola, sexo) %>%
+  count() %>%
+  as_tibble() %>%  # para desfazer group
+  mutate(
+    p = n/sum(n)
+  )
+tb2
+
+```
+
+Gráficos de barras podem ser obtidos de duas formas:
+
+  i) `ggplot2::geom_bar()`: quando trabalhaos com os dados brutos (é possível usar essa função também quando já temos a distribuição de frequências);
+  i) `ggplot2::geom_col()`: quando os dados já estão disponíveis em uma tabela (não necessariamente de distribuição de frequências).
+
+
+Primeiramente vamos contruir gráficos de barros com a altura das barras proporcionais à frequência simples:
+
+```{r}
+# dados brutos:
+ggplot(enem, aes(x = sexo)) +
+  geom_bar() + 
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5) +
+  ylab("freq. simples")
+
+# a partir da tabela usando geom_bar:
+ggplot(tb1, aes(x=sexo, y=n)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label=n), vjust=-0.5) +
+  ylab("freq. simples")
+
+# a partir da tabela usando geom_col:
+ggplot(tb1, aes(x = sexo, y = n)) +
+  geom_col() +
+  geom_text(aes(label = n), vjust = -0.5) +
+  ylab("freq. simples")
+
+```
+
+Agora vamos contruir gráficos de barros com a altura das barras proporcionais à frequência relativa:
+
+```{r}
+# dados brutos:
+ggplot(data = enem, aes(x = sexo, y = after_stat(prop), group = 1)) +
+  geom_bar() + 
+  geom_text(stat = 'count', aes(label = 100*round(after_stat(prop), 3)), vjust = -0.5) +
+  ylab("freq. relativa (%)")
+
+# a partir da tabela usando geom_bar:
+ggplot(tb1, aes(x=sexo, y=p)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label=100*round(p, 3)), vjust=-0.5) +
+  ylab("freq. relativa")
+
+# a partir da tabela usando geom_col:
+ggplot(tb1, aes(x = sexo, y = p)) +
+  geom_col() +
+  geom_text(aes(label = 100*round(p, 3)), vjust = -0.5) +
+  ylab("freq. relativa")
+
+```
+
+Finalmente, vamos ver um exemplo envolvendo duas variáveis categóricas:
+
+```{r}
+
+# na mesma barra:
+ggplot(tb2, aes(x=escola, y=p, fill = sexo)) +
+  geom_col() +
+  geom_text(
+    aes(label = 100*round(p, 3), group=sexo), 
+    position = position_stack(vjust = 0.5), 
+  )
+
+
+# barras lado a lado
+ggplot(tb2, aes(x=escola, y=n, fill=sexo)) +
+  geom_col(
+    position = position_dodge(0.8), 
+    width = 0.7
+  ) +
+  geom_text(
+    aes(label = n), 
+    position = position_dodge(0.8), 
+    vjust = -0.3
+  ) +
+  xlab("freq. simples")
+
+ggplot(tb2, aes(x=escola, y=p, fill=sexo)) +
+  geom_col(
+    position = position_dodge(0.8), 
+    width = 0.7
+  ) +
+  geom_text(
+    aes(label = 100*round(p, 3)), 
+    position = position_dodge(0.8), 
+    vjust = -0.3
+  ) +
+  xlab("freq. relativa")
+
+```
+
+## O histograma
+
+```{r}
+# default:
+ggplot(enem, aes(x=idade)) +
+  geom_histogram()
+
+# fornecendo o número de intervalos:
+ggplot(enem, aes(x=idade)) +
+  geom_histogram(bins = 10, col = "white")
+
+# fornecendo os limites
+limites <- seq(10, 90, by = 10)
+ggplot(enem, aes(x = idade)) +
+  geom_histogram(breaks = limites, alpha = 0.5, col = "gray")
+
+# barras proporcionais à densidade
+ggplot(enem, aes(x = idade, y = after_stat(density))) +
+  geom_histogram(breaks = limites, alpha = 0.7, col = "white") +
+  labs(x = "idade", y = "densidade")
+```
+
+
+Vejamos agora um exemplo um pouco mais elaborado em que vamos gerar uma amostra de tamanho $n=100$ de $X \sim \mbox{N}(500, 10)$, obter o histograma com as barras proporcionais à densidade, e finalmente vamos plotar a densidade da normal por cima do histograma obtido:
+
+```{r}
+# fixando a semente do gerador de números aleatórios:
+set.seed(1234567890)
+
+n <- 1000
+mu <- 500
+sigma <- 10
+
+df <- tibble(
+  x = sort(rnorm(n, mean = mu, sd = sigma)), 
+  f = dnorm(x, mean = mu, sd = sigma)
+)
+
+ggplot(df, aes(x=x)) +
+  geom_histogram(aes(y=after_stat(density)), bins=15, col = "white") +
+  geom_line(aes(y=f), color = "blue")
+
+```
+
+ 
+
+
